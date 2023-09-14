@@ -1,9 +1,15 @@
 cmake_minimum_required(VERSION 3.8)
 project (Adiak
          LANGUAGES CXX C
-         VERSION 0.1)
+         VERSION 0.2.2)
 
 set(BLT_CXX_STD "c++11" CACHE STRING "Version of C++ standard")
+
+if (NOT DEFINED CMAKE_INSTALL_LIBDIR)
+  set(CMAKE_INSTALL_LIBDIR lib)
+endif()
+
+set(BLT_EXPORT_THIRDPARTY ON CACHE BOOL "")
 
 if (DEFINED BLT_SOURCE_DIR)
     # Support having a shared BLT outside of the repository if given a BLT_SOURCE_DIR
@@ -26,6 +32,13 @@ endif()
 include(${BLT_SOURCE_DIR}/SetupBLT.cmake)
 
 add_subdirectory(src)
+if (ENABLE_TESTS)
+  add_subdirectory(tests)
+endif()
+
+if (ENABLE_DOCS)
+  add_subdirectory(docs)
+endif()
 
 include(CMakePackageConfigHelpers)
 

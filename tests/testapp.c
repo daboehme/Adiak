@@ -1,4 +1,5 @@
 #include "adiak.h"
+#include "testlib.c"
 #include <stdio.h>
 #include <time.h>
 #include <sys/time.h>
@@ -22,6 +23,9 @@ void dowork(struct timeval start)
    if (result != 0) printf("return: %d\n\n", result);
 
    result = adiak_namevalue("problemsize", adiak_general, NULL, "%lu", 14000);
+   if (result != 0) printf("return: %d\n\n", result);
+
+   result = adiak_namevalue("countdown", adiak_general, NULL, "%lld", 9876543210);
    if (result != 0) printf("return: %d\n\n", result);
 
    result = adiak_user();
@@ -75,7 +79,13 @@ void dowork(struct timeval start)
    if (result != 0) printf("return: %d\n\n", result);
 }
 
-int main(int argc, char *argv[])
+int main(
+#if defined(USE_MPI)
+         int argc, char *argv[]
+#else
+         int UNUSED(argc), char **UNUSED(argv)
+#endif
+         )
 {
 #if defined(USE_MPI)
    MPI_Comm world = MPI_COMM_WORLD;

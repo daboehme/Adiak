@@ -9,6 +9,13 @@
 #define XSTR(S) #S
 #define STR(S) XSTR(S)
 
+#ifdef __GNUC__
+#define UNUSED(x) UNUSED_ ## x __attribute__((__unused__))
+#else
+#define UNUSED(x) UNUSED_ ## x
+#endif
+
+
 static void print_value(adiak_value_t *val, adiak_datatype_t *t)
 {
    if (!t)
@@ -22,6 +29,12 @@ static void print_value(adiak_value_t *val, adiak_datatype_t *t)
          break;
       case adiak_ulong:
          printf("%lu", (unsigned long) val->v_long);
+         break;
+      case adiak_longlong:
+         printf("%lld", val->v_longlong);
+         break;
+      case adiak_ulonglong:
+         printf("%llu", (unsigned long long) val->v_longlong);
          break;
       case adiak_int:
          printf("%d", val->v_int);
@@ -112,14 +125,14 @@ static void print_value(adiak_value_t *val, adiak_datatype_t *t)
    }
 }
 
-static void print_nameval(const char *name, adiak_category_t category, const char *subcategory, adiak_value_t *value, adiak_datatype_t *t, void *opaque_value)
+static void print_nameval(const char *name, int UNUSED(category), const char *UNUSED(subcategory), adiak_value_t *value, adiak_datatype_t *t, void *UNUSED(opaque_value))
 {
    printf("%s - %s: ", STR(TOOLNAME), name);
    print_value(value, t);
    printf("\n");
 }
 
-static void print_on_flush(const char *name, adiak_category_t category, const char *subcategory, adiak_value_t *value, adiak_datatype_t *t, void *opaque_value)
+static void print_on_flush(const char *name, int UNUSED(category), const char *UNUSED(subcategory), adiak_value_t *UNUSED(value), adiak_datatype_t *UNUSED(t), void *UNUSED(opaque_value))
 {
    if (strcmp(name, "fini") != 0)
       return;

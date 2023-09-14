@@ -20,7 +20,7 @@ typedef struct adiak_tool_t {
    void *opaque_val;
    adiak_nameval_cb_t name_val_cb;
    int report_on_all_ranks;
-   adiak_category_t category;
+   int category;
 } adiak_tool_t;
 
 typedef struct {
@@ -34,7 +34,7 @@ typedef struct {
 
 typedef struct record_list_t {
    const char *name;
-   adiak_category_t category;
+   int category;
    const char *subcategory;
    adiak_value_t *value;
    adiak_datatype_t *dtype;
@@ -55,6 +55,8 @@ static int measure_adiak_cputime;
 
 static adiak_datatype_t base_long = { adiak_long, adiak_rational, 0, 0, NULL };
 static adiak_datatype_t base_ulong = { adiak_ulong, adiak_rational, 0, 0, NULL };
+static adiak_datatype_t base_longlong = { adiak_longlong, adiak_rational, 0, 0, NULL };
+static adiak_datatype_t base_ulonglong = { adiak_ulonglong, adiak_rational, 0, 0, NULL };
 static adiak_datatype_t base_int = { adiak_int, adiak_rational, 0, 0, NULL };
 static adiak_datatype_t base_uint = { adiak_uint, adiak_rational, 0, 0, NULL };
 static adiak_datatype_t base_double = { adiak_double, adiak_rational, 0, 0, NULL };
@@ -65,7 +67,7 @@ static adiak_datatype_t base_string = { adiak_string, adiak_ordinal, 0, 0, NULL 
 static adiak_datatype_t base_catstring = { adiak_catstring, adiak_categorical, 0, 0, NULL };
 static adiak_datatype_t base_path = { adiak_path, adiak_categorical, 0, 0, NULL };
 
-static void adiak_register(int adiak_version, adiak_category_t category,
+static void adiak_register(int adiak_version, int category,
                            adiak_nameval_cb_t nv,
                            int report_on_all_ranks, void *opaque_val);
 
@@ -80,7 +82,7 @@ static void free_adiak_value_worker(adiak_datatype_t *t, adiak_value_t *v);
 static adiak_type_t toplevel_type(const char *typestr);
 static int copy_value(adiak_value_t *target, adiak_datatype_t *datatype, void *ptr);
 
-static void record_nameval(const char *name, adiak_category_t category, const char *subcategory,
+static void record_nameval(const char *name, int category, const char *subcategory,
                            adiak_value_t *value, adiak_datatype_t *dtype);
 
 static int measure_walltime();
@@ -104,7 +106,7 @@ adiak_datatype_t *adiak_new_datatype(const char *typestr, ...)
    return t;
 }
 
-int adiak_raw_namevalue(const char *name, adiak_category_t category, const char *subcategory,
+int adiak_raw_namevalue(const char *name, int category, const char *subcategory,
                         adiak_value_t *value, adiak_datatype_t *type)
 {
    adiak_tool_t *tool;
@@ -125,7 +127,7 @@ int adiak_raw_namevalue(const char *name, adiak_category_t category, const char 
    return 0;   
 }
 
-int adiak_namevalue(const char *name, adiak_category_t category, const char *subcategory, const char *typestr, ...)
+int adiak_namevalue(const char *name, int category, const char *subcategory, const char *typestr, ...)
 {
    va_list ap;
    adiak_datatype_t *t;
@@ -151,6 +153,10 @@ int adiak_namevalue(const char *name, adiak_category_t category, const char *sub
       case adiak_int:
       case adiak_uint:
          value->v_int = va_arg(ap, int);
+         break;
+      case adiak_longlong:
+      case adiak_ulonglong:
+         value->v_longlong = va_arg(ap, long long);
          break;
       case adiak_double:
          value->v_double = va_arg(ap, double);
@@ -196,6 +202,8 @@ adiak_numerical_t adiak_numerical_from_type(adiak_type_t dtype)
          return adiak_numerical_unset;
       case adiak_long:
       case adiak_ulong:
+      case adiak_longlong:
+      case adiak_ulonglong:
       case adiak_int:
       case adiak_uint:
       case adiak_double:
@@ -217,13 +225,13 @@ adiak_numerical_t adiak_numerical_from_type(adiak_type_t dtype)
    return adiak_numerical_unset;
 }
 
-void adiak_register_cb(int adiak_version, adiak_category_t category,
+void adiak_register_cb(int adiak_version, int category,
                        adiak_nameval_cb_t nv, int report_on_all_ranks, void *opaque_val)
 {
    adiak_register(adiak_version, category, nv, report_on_all_ranks, opaque_val);
 }
 
-void adiak_list_namevals(int adiak_version, adiak_category_t category, adiak_nameval_cb_t nv, void *opaque_val)
+void adiak_list_namevals(int adiak_version, int category, adiak_nameval_cb_t nv, void *opaque_val)
 {
    record_list_t *i;
    for (i = record_list; i != NULL; i = i->list_next) {
@@ -232,6 +240,25 @@ void adiak_list_namevals(int adiak_version, adiak_category_t category, adiak_nam
       nv(i->name, i->category, i->subcategory, i->value, i->dtype, opaque_val);
    }
    (void) adiak_version;
+}
+
+int adiak_get_nameval(const char *name, adiak_datatype_t **t, adiak_value_t **value,  int *cat, const char **subcat)
+{
+   record_list_t *i;
+   for (i = record_list; i != NULL; i = i->list_next) {
+      if (strcmp(i->name, name) == 0) {
+         if (t)
+            *t = i->dtype;
+         if (value)
+            *value = i->value;
+         if (cat)
+            *cat = i->category;
+         if (subcat)
+            *subcat = i->subcategory;
+         return 0;
+      }
+   }
+   return -1;
 }
 
 static void adiak_common_init()
@@ -259,7 +286,7 @@ void adiak_init(void *mpi_communicator_p)
    adiak_common_init();
 
 #if (USE_MPI)
-   if (mpi_communicator_p) {
+   if (mpi_communicator_p && adksys_mpi_initialized()) {
       adksys_mpi_init(mpi_communicator_p);
       adiak_config->reportable_rank = adksys_reportable_rank();
       adiak_config->use_mpi = 1;
@@ -289,7 +316,7 @@ void adiak_fini()
    adiak_raw_namevalue("fini", adiak_control, NULL, &val, &base_int);   
 }
 
-static void adiak_register(int adiak_version, adiak_category_t category,
+static void adiak_register(int adiak_version, int category,
                            adiak_nameval_cb_t nv,
                            int report_on_all_ranks, void *opaque_val)
 {
@@ -352,6 +379,11 @@ static adiak_type_t toplevel_type(const char *typestr) {
             cur++;
             if (*cur == 'd') return adiak_long;
             if (*cur == 'u') return adiak_ulong;
+            if (*cur == 'l') {
+               cur++;
+               if (*cur == 'd') return adiak_longlong;
+               if (*cur == 'u') return adiak_ulonglong;
+            }
             return adiak_type_unset;
          case 'd': return adiak_int;
          case 'u': return adiak_uint;
@@ -384,6 +416,10 @@ adiak_datatype_t *adiak_get_basetype(adiak_type_t t)
          return &base_long;
       case adiak_ulong:
          return &base_ulong;
+      case adiak_longlong:
+         return &base_longlong;
+      case adiak_ulonglong:
+         return &base_ulonglong;
       case adiak_int:
          return &base_int;
       case adiak_uint:
@@ -434,6 +470,8 @@ static void free_adiak_value_worker(adiak_datatype_t *t, adiak_value_t *v) {
       case adiak_type_unset:
       case adiak_long:
       case adiak_ulong:
+      case adiak_longlong:
+      case adiak_ulonglong:
       case adiak_int:
       case adiak_uint:
       case adiak_double:
@@ -481,6 +519,10 @@ static int copy_value(adiak_value_t *target, adiak_datatype_t *datatype, void *p
       case adiak_date:
          target->v_long = *((long *) ptr);
          return sizeof(long);
+      case adiak_longlong:
+      case adiak_ulonglong:
+         target->v_longlong = *((long long *) ptr);
+         return sizeof(long long);
       case adiak_int:
       case adiak_uint:
          target->v_int = *((int *) ptr);
@@ -526,7 +568,7 @@ static adiak_datatype_t *parse_typestr_helper(const char *typestr, int typestr_s
 {
    adiak_datatype_t *t = NULL;
    int cur = typestr_start;
-   int end_brace, i, is_long = 0;
+   int end_brace, i, is_long = 0, is_longlong = 0;
    
    if (!typestr)
       goto error;
@@ -592,13 +634,17 @@ static adiak_datatype_t *parse_typestr_helper(const char *typestr, int typestr_s
       if (typestr[cur] == 'l') {
          is_long = 1;
          cur++;
+         if (typestr[cur] == 'l') {
+            is_longlong = 1;
+            cur++;
+         }
       }
       switch (typestr[cur]) {
          case 'd':
-            t = is_long ? &base_long : &base_int;
+            t = is_long ? (is_longlong ? &base_longlong  : &base_long)  : &base_int;
             break;
          case 'u':
-            t = is_long ? &base_ulong : &base_uint;
+            t = is_long ? (is_longlong ? &base_ulonglong : &base_ulong) : &base_uint;
             break;
          case 'f':
             t = &base_double;
@@ -645,7 +691,7 @@ static unsigned long strhash(const char *str) {
     return hash;   
 }
 
-static void record_nameval(const char *name, adiak_category_t category, const char *subcategory,
+static void record_nameval(const char *name, int category, const char *subcategory,
                            adiak_value_t *value, adiak_datatype_t *dtype)
 {
    record_list_t *addrecord = NULL, *i;
@@ -671,7 +717,7 @@ static void record_nameval(const char *name, adiak_category_t category, const ch
    }
    
    addrecord->category = category;
-   addrecord->subcategory = addrecord->subcategory ? strdup(subcategory) : NULL;
+   addrecord->subcategory = subcategory ? strdup(subcategory) : NULL;
    addrecord->value = value;
    addrecord->dtype = dtype;
 
@@ -881,6 +927,16 @@ int adiak_user()
    return result;
 }
 
+int adiak_workdir()
+{
+   char cwd[FILENAME_MAX];
+   int result = adksys_get_cwd(cwd, FILENAME_MAX); 
+   if (result == 1)
+      return -1;
+   result = adiak_namevalue("working_directory", adiak_general, "runinfo", "%p", cwd); 
+   return result;
+}
+
 int adiak_uid()
 {
    int result;
@@ -937,9 +993,9 @@ int adiak_hostlist()
 {
    char **hostlist_array = NULL;
    int num_hosts = 0, result = -1;
-   char *name_buffer = NULL;
 
 #if defined(USE_MPI)
+   char *name_buffer = NULL;
    if (adiak_config->use_mpi)
       result = adksys_hostlist(&hostlist_array, &num_hosts, &name_buffer, adiak_config->report_on_all_ranks);
 #endif
@@ -956,9 +1012,9 @@ int adiak_num_hosts()
 {
    char **hostlist_array = NULL;
    int num_hosts = 0, result = -1;
-   char *name_buffer = NULL;
 
 #if defined(USE_MPI)
+   char *name_buffer = NULL;
    if (adiak_config->use_mpi)
       result = adksys_hostlist(&hostlist_array, &num_hosts, &name_buffer, adiak_config->report_on_all_ranks);
 #endif
@@ -973,9 +1029,10 @@ int adiak_num_hosts()
 
 int adiak_job_size()
 {
-   int result = -1, size = 1;
+   int size = 1;
 
 #if defined(USE_MPI)
+   int result = -1;
    if (adiak_config->use_mpi)
       result = adksys_jobsize(&size);
    if (result == -1)
@@ -1045,6 +1102,12 @@ static int adiak_type_string_helper(adiak_datatype_t *t, char *str, int len, int
          break;
       case adiak_ulong:
          simple = long_form ? "unsigned long" : "%lu";
+         break;
+      case adiak_longlong:
+         simple = long_form ? "long long" : "%lld";
+         break;
+      case adiak_ulonglong:
+         simple = long_form ? "unsigned long long" : "%llu";
          break;
       case adiak_int:
          simple = long_form ? "int" : "%d";
@@ -1135,6 +1198,7 @@ char *adiak_type_to_string(adiak_datatype_t *t, int long_form)
 
    buffer = (char *) malloc(len + 1);
    len2 = adiak_type_string_helper(t, buffer, len+1, 0, long_form, 0);
+   (void)len2;
    assert(len == len2);
    buffer[len] = '\0';
 
